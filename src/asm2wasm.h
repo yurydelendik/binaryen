@@ -805,8 +805,7 @@ Function* Asm2WasmBuilder::processFunction(Ref ast) {
         ret->offset = 0;
         ret->align = ret->bytes;
         auto ptr = allocator.alloc<Const>();
-        ptr->value.type = WasmType::i32; // XXX for wasm64, need 64
-        ptr->value.i32 = global.address;
+        ptr->value = Literal(int32_t(global.address)); // XXX for wasm64, need 64
         ret->ptr = ptr;
         ret->value = process(ast[3]);
         ret->type = global.type;
@@ -875,14 +874,11 @@ Function* Asm2WasmBuilder::processFunction(Ref ast) {
       auto ret = allocator.alloc<Const>();
       double num = ast[1]->getNumber();
       if (isSInteger32(num)) {
-        ret->value.type = WasmType::i32;
-        ret->value.i32 = toSInteger32(num);
+        ret->value = Literal(int32_t(toSInteger32(num)));
       } else if (isUInteger32(num)) {
-        ret->value.type = WasmType::i32;
-        ret->value.i32 = toUInteger32(num);
+        ret->value = Literal(uint32_t(toUInteger32(num)));
       } else {
-        ret->value.type = WasmType::f64;
-        ret->value.f64 = num;
+        ret->value = Literal(num);
       }
       ret->type = ret->value.type;
       return ret;
@@ -920,8 +916,7 @@ Function* Asm2WasmBuilder::processFunction(Ref ast) {
       ret->offset = 0;
       ret->align = ret->bytes;
       auto ptr = allocator.alloc<Const>();
-      ptr->value.type = WasmType::i32; // XXX for wasm64, need 64
-      ptr->value.i32 = global.address;
+      ptr->value = Literal(int32_t(global.address)); // XXX for wasm64, need 64
       ret->ptr = ptr;
       ret->type = global.type;
       return ret;
@@ -1449,8 +1444,7 @@ Function* Asm2WasmBuilder::processFunction(Ref ast) {
       unsigned addr = ptr[1]->getInteger();
       unsigned shifted = addr << shifts;
       auto ret = allocator.alloc<Const>();
-      ret->value.type = WasmType::i32;
-      ret->value.i32 = shifted;
+      ret->value = Literal(int32_t(shifted));
       return (Expression*)ret;
     }
     abort_on("bad processUnshifted", ptr);
