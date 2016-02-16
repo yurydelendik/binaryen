@@ -335,7 +335,8 @@ enum ASTNodes {
   BrIf = 0x07,
   TableSwitch = 0x08,
   Return = 0x14,
-  Unreachable = 0x15
+  Unreachable = 0x15,
+  EndMarker = 0xff
 };
 
 enum MemoryAccess {
@@ -623,7 +624,7 @@ public:
 
   void visitBlock(Block *curr) {
     if (debug) std::cerr << "zz node: Block" << std::endl;
-    o << int8_t(BinaryConsts::Block) << LEB128(curr->list.size()); // XXX larger block size, divergence from v8 to get more code to build
+    o << int8_t(BinaryConsts::Block);
     breakStack.push_back(curr->name);
     size_t i = 0;
     for (auto* child : curr->list) {
@@ -631,6 +632,7 @@ public:
       recurse(child);
     }
     breakStack.pop_back();
+    o << int8_t(BinaryConsts::EndMarker);
   }
   void visitIf(If *curr) {
     if (debug) std::cerr << "zz node: If" << std::endl;
@@ -1298,6 +1300,10 @@ public:
       case BinaryConsts::Return:       visitReturn((curr = allocator.alloc<Return>())->cast<Return>()); break;
       case BinaryConsts::Nop:          visitNop((curr = allocator.alloc<Nop>())->cast<Nop>()); break;
       case BinaryConsts::Unreachable:  visitUnreachable((curr = allocator.alloc<Unreachable>())->cast<Unreachable>()); break;
+      case BinaryConsts::EndMarker:    {
+        curr = nullptr;
+        return;
+      }
       default: {
         // otherwise, the code is a subcode TODO: optimize
         if (maybeVisit<Binary>(curr, code)) break;
@@ -1327,16 +1333,16 @@ public:
 
   void visitBlock(Block *curr) {
     if (debug) std::cerr << "zz node: Block" << std::endl;
-    auto num = getLEB128(); // XXX larger block size, divergence from v8 to get more code to build
     curr->name = getNextLabel();
     breakStack.push_back(curr->name);
-    for (uint32_t i = 0; i < num; i++) {
-      if (debug) std::cerr << "  " << size_t(curr) << "\n zz Block element " << i << std::endl;
+    while (1) {
       Expression* child;
       readExpression(child);
+      if (!child) break;
+      if (debug) std::cerr << "  " << size_t(curr) << "\n zz Block element " << curr->list.size() << std::endl;
       curr->list.push_back(child);
     }
-    if (num > 0) {
+    if (curr->list.size() > 0) {
       curr->type = curr->list.back()->type;
     }
     breakStack.pop_back();
