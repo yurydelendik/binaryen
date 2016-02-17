@@ -1293,10 +1293,7 @@ public:
       case BinaryConsts::Return:       visitReturn((curr = allocator.alloc<Return>())->cast<Return>()); break;
       case BinaryConsts::Nop:          visitNop((curr = allocator.alloc<Nop>())->cast<Nop>()); break;
       case BinaryConsts::Unreachable:  visitUnreachable((curr = allocator.alloc<Unreachable>())->cast<Unreachable>()); break;
-      case BinaryConsts::EndMarker:    {
-        curr = nullptr;
-        return;
-      }
+      case BinaryConsts::EndMarker:    curr = nullptr; break;
       default: {
         // otherwise, the code is a subcode TODO: optimize
         if (maybeVisit<Binary>(curr, code)) break;
