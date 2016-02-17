@@ -658,14 +658,7 @@ public:
         return breakStack.size() - 1 - i;
       }
     }
-printf("bad!\n");
     std::cerr << "bad break: " << name << std::endl;
-
-
-
-assert(0);
-
-
     abort();
   }
 
