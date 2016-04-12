@@ -28,6 +28,7 @@
 #define wasm_traversal_h
 
 #include "wasm.h"
+#include "support/threads.h"
 
 namespace wasm {
 
@@ -112,6 +113,15 @@ struct Walker : public Visitor<SubType> {
   // passes that need to do the same thing for every node type.
   void visitExpression(Expression* curr) {}
 
+  // Function parallelism. By default, walks are not run in parallel, but you
+  // can override this method to say that functions are parallelizable. This
+  // should always be safe *unless* you do something in the pass that makes it
+  // not thread-safe; in other words, the Module and Function objects and
+  // so forth are set up so that Functions can be processed in parallel, so
+  // if you do not ad global state that could be raced on, your pass could be
+  // function-parallel.
+  bool isFunctionParallel() { return false; }
+
   // Node replacing as we walk - call replaceCurrent from
   // your visitors.
 
@@ -140,9 +150,15 @@ struct Walker : public Visitor<SubType> {
     for (auto curr : module->exports) {
       self->visitExport(curr);
     }
-    for (auto curr : module->functions) {
-      self->startWalk(curr);
-      self->visitFunction(curr);
+    if (!isFunctionParallel) {
+      // execute sequentially on the main thread
+      for (auto curr : module->functions) {
+        self->startWalk(curr);
+        self->visitFunction(curr);
+      }
+    } else {
+      // execute in parallel on helper threads
+      TODO
     }
     self->visitTable(&module->table);
     self->visitMemory(&module->memory);
