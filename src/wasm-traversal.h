@@ -150,15 +150,33 @@ struct Walker : public Visitor<SubType> {
     for (auto curr : module->exports) {
       self->visitExport(curr);
     }
-    if (!isFunctionParallel) {
-      // execute sequentially on the main thread
+    // if this is not a function-parallel traversal, or
+    // we are not on the main thread (so we are a helper
+    // thread; if we allowed creating a pool in helpers,
+    // we could use more cores than is beneficial), run
+    // sequentially
+    if (!isFunctionParallel || !Thread::onMainThread()) {
       for (auto curr : module->functions) {
         self->startWalk(curr);
         self->visitFunction(curr);
       }
     } else {
       // execute in parallel on helper threads
-      TODO
+      size_t nextFunction = 0;
+
+      ThreadPool::get()->runTasks([&]() -> void* {
+        // get the next task, if there is one
+        if (nextFunction == module->functions.size()) {
+          return nullptr; // nothing left
+        } 
+        return static_cast<void*>(module->functions[nextFunction++]);
+      }, [](void* curr_) {
+        Function* curr = static_cast<Function*>(curr_);
+        // do the current task
+        self->startWalk(curr);
+        self->visitFunction(curr);
+      }),
+
     }
     self->visitTable(&module->table);
     self->visitMemory(&module->memory);

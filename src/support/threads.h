@@ -21,32 +21,72 @@
 #ifndef wasm_support_threads_h
 #define wasm_support_threads_h
 
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 namespace wasm {
 
 //
-// A thread object.
+// A helper thread.
 //
 // You can only create and destroy these on the main thread.
 //
 
 class Thread {
-  std::thread::id id;
+  std::unique_ptr<std::thread> thread;
+  std::mutex mutex;
+  std::condition_variable condition;
+  bool done = false;
+  std::function<void* ()> getTask;
+  std::function<void (void*)> runTask;
 
 public:
   Thread();
   ~Thread();
 
-  // called on the right OS thread, set up id
-  void prepare();
+  // Start to run tasks, getting them using getTask,
+  // executing them using runTask, until getTask
+  // returns nullptr;
+  void runTasks(std::function<void* ()> getTask,
+                std::function<void (void*)> runTask);
 
-  // Checks if this is the main thread.
-  static bool isMainThread();
+  // Checks if execution is the main thread.
+  static bool onMainThread();
 
-  // Returns how many active threads exist. This includes
-  // the main thread, so it is always at least 1.
-  static size_t getNumThreads();
+private:
+  static void mainLoop(void *self);
+};
+
+//
+// A pool of helper threads.
+//
+// There is only one, to avoid recursive pools using too many cores.
+//
+
+class ThreadPool {
+  std::vector<std::unique_ptr<Thread>> threads;
+  bool running = false;
+  std::mutex mutex;
+
+private:
+  ThreadPool(size_t num);
+
+public:
+  // Get the singleton threadpool. This can return null
+  // if there is just one thread available.
+  static ThreadPool* get();
+
+  // Execute a bunch of tasks by the pool. This calls
+  // getTask() (in a thread-safe manner) to get tasks, and
+  // sends them to workers to be executed. This method
+  // blocks until all tasks are complete.
+  void runTasks(std::function<void* ()> getTask,
+                std::function<void (void*)> runTask);
+
+  static bool isRunning();
 };
 
 } // namespace wasm

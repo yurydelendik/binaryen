@@ -16,50 +16,116 @@
 
 #include <assert.h>
 
-#include "support/threads.h"
+#include <cstdlib>
+
+#include "threads.h"
 
 
 namespace wasm {
 
 // Global thread information
 
-static size_t numThreads = 0;
+std::thread::id mainThreadId;
 
-// Represents the main thread, ensures that numThreads is initially 1.
-static Thread mainThread;
-
-struct MainThreadPreparer {
-  MainThreadPreparer() {
+struct MainThreadNoter {
+  MainThreadNoter() {
     // global ctors are called on main thread
-    mainThread.prepare();
+    mainThreadId = std::this_thread::get_id();
   }
 };
 
-static MainThreadPreparer preparer;
+static MainThreadNoter noter;
+
+static ThreadPool* pool = nullptr;
+
+
+// Thread
 
 Thread::Thread() {
   // main thread object's constructor itself can
-  // happen before isMainThread is ready
-  assert(this == &mainThread || isMainThread());
-  numThreads++;
+  // happen before onMainThread is ready
+  assert(onMainThread());
+  thread = std::unique_ptr<std::thread>(new std::thread(mainLoop, this));
 }
 
 Thread::~Thread() {
-  assert(this == &mainThread || isMainThread());
-  numThreads--;
+  assert(onMainThread());
+  done = true;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    condition.notify_one();
+  }
+  thread->join();
 }
 
-void Thread::prepare() {
-  id = std::this_thread::get_id();
+void Thread::runTasks(std::function<void* ()> getTask_,
+                      std::function<void (void*)> runTask_) {
+  // TODO: fancy work stealing
+  assert(onMainThread());
+  getTask = getTask_;
+  runTask = runTask_;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    condition.notify_one();
+  }
 }
 
-bool Thread::isMainThread() {
-  return std::this_thread::get_id() == mainThread.id;
+bool Thread::onMainThread() {
+  return std::this_thread::get_id() == mainThreadId;
 }
 
-size_t Thread::getNumThreads() {
-  // during startup, numThreads may not be bumped to 1 yet
-  return numThreads > 0 ? numThreads : 1;
+void Thread::mainLoop(void *self_) {
+  auto* self = static_cast<Thread*>(self_);
+  while (1) {
+    {
+      std::lock_guard<std::mutex> lock(self->mutex);
+      condition.wait(self->lock);//, [&]{ return OptimizerWorker::done || OptimizerWorker::inputs.size() > 0; });
+    }
+    if (done) break;
+    // grab next task
+    self->runTask(self->getTask());
+  }
+}
+
+
+// ThreadPool
+
+ThreadPool::ThreadPool(size_t num) {
+  for (size_t i = 0; i < num; i++) {
+    threads[i] = std::unique_ptr<Thread>(new Thread());
+
+  }
+}
+
+ThreadPool* ThreadPool::get() {
+  if (!pool) {
+    size_t num = std::thread::hardware_concurrency();
+    if (num < 2) return nullptr;
+    pool = new ThreadPool(num);
+    atexit([pool]() {
+      delete pool;
+    });
+  }
+  return pool;
+}
+
+void ThreadPool::runTasks(std::function<void* ()> getTask,
+                          std::function<void (void*)> runTask) {
+  // TODO: fancy work stealing
+  assert(onMainThread());
+  assert(!running);
+  running = true;
+  for (auto thread : threads) {
+    thread->runTasks([&]() -> void* {
+      std::lock_guard<std::mutex> lock(mutex);
+      return getTask();
+    }, runTask);
+  }
+  running = false;
+}
+
+bool ThreadPool::isRunning() {
+  return pool && pool->running;
 }
 
 } // namespace wasm
