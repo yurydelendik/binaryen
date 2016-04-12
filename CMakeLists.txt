@@ -75,6 +75,7 @@ SET(support_SOURCES
   src/support/command-line.cpp
   src/support/file.cpp
   src/support/safe_integer.cpp
+  src/support/threads.cpp
 )
 ADD_LIBRARY(support STATIC ${support_SOURCES})
 
