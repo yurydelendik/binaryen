@@ -155,7 +155,7 @@ struct Walker : public Visitor<SubType> {
     // thread; if we allowed creating a pool in helpers,
     // we could use more cores than is beneficial), run
     // sequentially
-    if (!isFunctionParallel || !Thread::onMainThread()) {
+    if (!isFunctionParallel() || !Thread::onMainThread()) {
       for (auto curr : module->functions) {
         self->startWalk(curr);
         self->visitFunction(curr);
@@ -170,12 +170,12 @@ struct Walker : public Visitor<SubType> {
           return nullptr; // nothing left
         } 
         return static_cast<void*>(module->functions[nextFunction++]);
-      }, [](void* curr_) {
+      }, [&](void* curr_) {
         Function* curr = static_cast<Function*>(curr_);
         // do the current task
         self->startWalk(curr);
         self->visitFunction(curr);
-      }),
+      });
 
     }
     self->visitTable(&module->table);

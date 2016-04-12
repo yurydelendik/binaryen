@@ -74,7 +74,7 @@ struct IString {
       // the StringSet is a global shared structure, which can be modified
       // only on the main thread and only when other threads cannot race.
       assert(wasm::Thread::onMainThread());
-      assert(wasm::ThreadPool::isRunning());
+      assert(!wasm::ThreadPool::isRunning());
       if (!reuse) {
         size_t len = strlen(s) + 1;
         char *copy = (char*)malloc(len); // XXX leaked

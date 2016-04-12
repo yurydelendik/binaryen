@@ -78,10 +78,10 @@ void Thread::mainLoop(void *self_) {
   auto* self = static_cast<Thread*>(self_);
   while (1) {
     {
-      std::lock_guard<std::mutex> lock(self->mutex);
-      condition.wait(self->lock);//, [&]{ return OptimizerWorker::done || OptimizerWorker::inputs.size() > 0; });
+      std::unique_lock<std::mutex> lock(self->mutex);
+      self->condition.wait(lock);//, [&]{ return OptimizerWorker::done || OptimizerWorker::inputs.size() > 0; });
     }
-    if (done) break;
+    if (self->done) break;
     // grab next task
     self->runTask(self->getTask());
   }
@@ -102,7 +102,7 @@ ThreadPool* ThreadPool::get() {
     size_t num = std::thread::hardware_concurrency();
     if (num < 2) return nullptr;
     pool = new ThreadPool(num);
-    atexit([pool]() {
+    atexit([&]() {
       delete pool;
     });
   }
@@ -112,10 +112,10 @@ ThreadPool* ThreadPool::get() {
 void ThreadPool::runTasks(std::function<void* ()> getTask,
                           std::function<void (void*)> runTask) {
   // TODO: fancy work stealing
-  assert(onMainThread());
+  assert(Thread::onMainThread());
   assert(!running);
   running = true;
-  for (auto thread : threads) {
+  for (auto& thread : threads) {
     thread->runTasks([&]() -> void* {
       std::lock_guard<std::mutex> lock(mutex);
       return getTask();
