@@ -16,6 +16,7 @@
 
 #include <assert.h>
 
+#include <iostream>
 #include <cstdlib>
 
 #include "threads.h"
@@ -25,12 +26,14 @@ namespace wasm {
 
 // Global thread information
 
+bool setMainThreadId = false;
 std::thread::id mainThreadId;
 
 struct MainThreadNoter {
   MainThreadNoter() {
     // global ctors are called on main thread
     mainThreadId = std::this_thread::get_id();
+    setMainThreadId = true;
   }
 };
 
@@ -71,7 +74,9 @@ void Thread::runTasks(std::function<void* ()> getTask_,
 }
 
 bool Thread::onMainThread() {
-  return std::this_thread::get_id() == mainThreadId;
+  // mainThread Id might not be set yet if we are in a global ctor, but
+  // that is on the main thread anyhow
+  return !setMainThreadId || std::this_thread::get_id() == mainThreadId;
 }
 
 void Thread::mainLoop(void *self_) {
@@ -111,6 +116,7 @@ ThreadPool* ThreadPool::get() {
 
 void ThreadPool::runTasks(std::function<void* ()> getTask,
                           std::function<void (void*)> runTask) {
+std::cerr << "pool run tasks\n";
   // TODO: fancy work stealing
   assert(Thread::onMainThread());
   assert(!running);

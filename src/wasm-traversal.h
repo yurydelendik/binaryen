@@ -155,12 +155,14 @@ struct Walker : public Visitor<SubType> {
     // thread; if we allowed creating a pool in helpers,
     // we could use more cores than is beneficial), run
     // sequentially
-    if (!isFunctionParallel() || !Thread::onMainThread()) {
+std::cerr << "start walk on module " << self->isFunctionParallel() << " : " << Thread::onMainThread() << "\n";
+    if (!self->isFunctionParallel() || !Thread::onMainThread()) {
       for (auto curr : module->functions) {
         self->startWalk(curr);
         self->visitFunction(curr);
       }
     } else {
+std::cerr << "PARALLE\n";
       // execute in parallel on helper threads
       size_t nextFunction = 0;
 
