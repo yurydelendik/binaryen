@@ -69,7 +69,6 @@ class ThreadPool {
   bool running = false;
   std::mutex mutex;
   std::condition_variable condition;
-  std::atomic<size_t> ready;
 
 private:
   ThreadPool(size_t num);

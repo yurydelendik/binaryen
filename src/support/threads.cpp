@@ -24,6 +24,8 @@
 
 namespace wasm {
 
+std::mutex debugLock;
+
 // Global thread information
 
 bool setMainThreadId = false;
@@ -50,6 +52,7 @@ Thread::Thread(std::function<void ()> onReady) {
   assert(onMainThread());
   // first piece of work for us is to notify we are ready
   doWork = [&]() {
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << " thread is up, cann onReady!!!\n"; }
     onReady();
     return false;
   };
@@ -82,8 +85,6 @@ bool Thread::onMainThread() {
   return !setMainThreadId || std::this_thread::get_id() == mainThreadId;
 }
 
-std::mutex debugLock;
-
 void Thread::mainLoop(void *self_) {
   auto* self = static_cast<Thread*>(self_);
   while (1) {
@@ -104,16 +105,22 @@ void Thread::mainLoop(void *self_) {
 
 ThreadPool::ThreadPool(size_t num) {
   if (num == 1) return; // no multiple cores, don't create threads
+std::cerr << "create thread pool of size " << num << "\n";
   std::unique_lock<std::mutex> lock(mutex);
-  ready = 0;
+  std::atomic<size_t> ready;
+  ready.store(0, std::memory_order_seq_cst);
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  " set to 0 on thread " << std::this_thread::get_id() << "\n"; }
   for (size_t i = 0; i < num; i++) {
     threads.emplace_back(std::unique_ptr<Thread>(new Thread([&] {
-      std::unique_lock<std::mutex> lock(mutex); // TODO sink
-      auto old = ready.fetch_add(1);
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  " a new thread is ready, total " << old << "\n"; }
-      if (old + 1 == threads.size()) {
+      auto old = ready.fetch_add(1, std::memory_order_seq_cst);
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  " a new thread is ready, total " << (old+1) << " : " << num << " on " << std::this_thread::get_id() << "\n"; }
+      if (old + 1 == num) {
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  " aalmost all ready, try to lock on " << std::this_thread::get_id() << "\n"; }
+        {
+          std::lock_guard<std::mutex> lock(mutex); // TODO
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  "  all ready!\n"; }
-        condition.notify_one();
+          condition.notify_one();
+        }
       }
     })));
   }
@@ -152,12 +159,13 @@ void ThreadPool::work(std::vector<std::function<bool ()>>& doWorkers) {
   assert(!running);
   running = true;
   std::unique_lock<std::mutex> lock(mutex);
-  ready = 0;
+  std::atomic<size_t> ready;
+  ready.store(0, std::memory_order_seq_cst);
   for (size_t i = 0; i < num; i++) {
-    threads[i]->work([i, num, this, &doWorkers]() {
+    threads[i]->work([i, num, this, &doWorkers, &ready]() {
 //{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "do some work\n"; }
       if (!doWorkers[i]()) {
-        auto old = ready.fetch_add(1);
+        auto old = ready.fetch_add(1, std::memory_order_seq_cst);
 //{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "    work is finished: " << old << "\n"; }
         if (old + 1 == num) {
 //{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       all finished, lock and notify!\n"; }
