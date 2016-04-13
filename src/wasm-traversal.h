@@ -100,6 +100,22 @@ struct Visitor {
   }
 };
 
+// Traversal tasks
+
+typedef void (*TaskFunc)(void*, Expression**);
+
+struct Task {
+  TaskFunc func;
+  Expression** currp;
+  Task(TaskFunc func, Expression** currp) : func(func), currp(currp) {}
+};
+
+// Expression traversal info is global, so that it can be thread_local
+
+extern thread_local Expression *replace; // a node to replace
+
+extern thread_local std::vector<Task> stack; // stack of tasks
+
 //
 // Base class for all WasmWalkers, which can traverse an AST
 // and provide the option to replace nodes while doing so.
@@ -124,8 +140,6 @@ struct Walker : public Visitor<SubType> {
 
   // Node replacing as we walk - call replaceCurrent from
   // your visitors.
-
-   Expression *replace = nullptr;
 
   void replaceCurrent(Expression *expression) {
     replace = expression;
@@ -189,23 +203,14 @@ std::cerr << "trav do some work on " << curr->name << "\n";
   // Walk implementation. We don't use recursion as ASTs may be highly
   // nested.
 
-  // Tasks receive the this pointer and a pointer to the pointer to operate on
-  typedef void (*TaskFunc)(SubType*, Expression**);
+  typedef void (*SpecificTaskFunc)(SubType*, Expression**);
 
-  struct Task {
-    TaskFunc func;
-    Expression** currp;
-    Task(TaskFunc func, Expression** currp) : func(func), currp(currp) {}
-  };
-
-   std::vector<Task> stack;
-
-  void pushTask(TaskFunc func, Expression** currp) {
-    stack.emplace_back(func, currp);
+  void pushTask(SpecificTaskFunc func, Expression** currp) {
+    stack.emplace_back((TaskFunc)func, currp);
   }
-  void maybePushTask(TaskFunc func, Expression** currp) {
+  void maybePushTask(SpecificTaskFunc func, Expression** currp) {
     if (*currp) {
-      stack.emplace_back(func, currp);
+      stack.emplace_back((TaskFunc)func, currp);
     }
   }
   Task popTask() {

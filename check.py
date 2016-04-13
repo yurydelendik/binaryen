@@ -592,7 +592,7 @@ if actual != expected:
 
 if has_emcc:
 
-  if has_mozjs:
+  if has_mozjs and 0:
 
     print '\n[ checking native wasm support ]\n'
 

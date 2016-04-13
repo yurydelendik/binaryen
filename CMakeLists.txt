@@ -104,6 +104,7 @@ SET(binaryen-shell_SOURCES
   src/passes/ReorderLocals.cpp
   src/passes/Vacuum.cpp
   src/passes/Metrics.cpp
+  src/wasm-traversal.cpp
 )
 ADD_EXECUTABLE(binaryen-shell
                ${binaryen-shell_SOURCES})
@@ -127,6 +128,7 @@ SET(asm2wasm_SOURCES
   src/emscripten-optimizer/parser.cpp
   src/emscripten-optimizer/simple_ast.cpp
   src/emscripten-optimizer/optimizer-shared.cpp
+  src/wasm-traversal.cpp
 )
 ADD_EXECUTABLE(asm2wasm
                ${asm2wasm_SOURCES})
@@ -152,6 +154,7 @@ SET(s2wasm_SOURCES
   src/pass.cpp
   src/passes/Print.cpp
   src/s2wasm-main.cpp
+  src/wasm-traversal.cpp
 )
 ADD_EXECUTABLE(s2wasm
                ${s2wasm_SOURCES})
@@ -174,6 +177,7 @@ SET(wasm_dis_SOURCES
   src/pass.cpp
   src/passes/Print.cpp
   src/wasm-dis.cpp
+  src/wasm-traversal.cpp
 )
 ADD_EXECUTABLE(wasm-dis
                ${wasm_dis_SOURCES})
