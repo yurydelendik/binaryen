@@ -128,6 +128,7 @@ ThreadPool::ThreadPool(size_t num) {
 
 ThreadPool* ThreadPool::get() {
   if (!pool) {
+    assert(Thread::onMainThread());
     size_t num = std::thread::hardware_concurrency();
     if (num < 2) num = 1;
     pool = new ThreadPool(num);
@@ -140,7 +141,8 @@ ThreadPool* ThreadPool::get() {
 
 void ThreadPool::runTasks(std::function<void* ()> getTask,
                           std::vector<std::function<void (void*)>>& runTaskers) {
-  if (threads.size() == 0) {
+  // If no multiple cores, or on a side thread, do not use worker threads
+  if (threads.size() == 0 || !Thread::onMainThread()) {
     // no multiple cores, just run sequentially
     assert(runTaskers.size() == 1);
     while (1) {
@@ -154,7 +156,6 @@ void ThreadPool::runTasks(std::function<void* ()> getTask,
   // TODO: fancy work stealing
   assert(runTaskers.size() == threads.size());
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "pool run tasks on " << threads.size() << " threads:\n"; }
-  assert(Thread::onMainThread());
   assert(!running);
   running = true;
   std::unique_lock<std::mutex> lock(mutex);

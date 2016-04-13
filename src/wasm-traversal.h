@@ -167,16 +167,14 @@ std::cerr << "PARALLE\n";
       for (size_t i = 0; i < num; i++) {
         auto* instance = new SubType();
         instances.push_back(std::unique_ptr<SubType>(instance));
-        [&](size_t closureI, SubType* closureInstance) {
-  std::cerr << "set up work func with " << closureI << " : " << closureInstance << "\n";
-          runTaskers.push_back([&](void* curr_) {
-            Function* curr = static_cast<Function*>(curr_);
-  std::cerr << "trav " << closureI << " do some work on " << curr->name << " using " << closureInstance << "\n";
-            // do the current task
-            closureInstance->walk(curr->body);
-            closureInstance->visitFunction(curr);
-          });
-        }(i, instance);
+std::cerr << "set up work func with " << i << " : " << instance << "\n";
+        runTaskers.push_back([instance](void* curr_) {
+          Function* curr = static_cast<Function*>(curr_);
+std::cerr << "trav do some work on " << curr->name << " using " << instance << "\n";
+          // do the current task
+          instance->walk(curr->body);
+          instance->visitFunction(curr);
+        });
       }
       size_t nextFunction = 0;
       ThreadPool::get()->runTasks([&]() -> void* {
