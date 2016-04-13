@@ -110,6 +110,7 @@ void Thread::mainLoop(void *self_) {
 // ThreadPool
 
 ThreadPool::ThreadPool(size_t num) {
+  if (num == 1) return; // no multiple cores, don't create threads
   std::unique_lock<std::mutex> lock(mutex);
   ready = 0;
   for (size_t i = 0; i < num; i++) {
@@ -128,7 +129,7 @@ ThreadPool::ThreadPool(size_t num) {
 ThreadPool* ThreadPool::get() {
   if (!pool) {
     size_t num = std::thread::hardware_concurrency();
-    if (num < 2) return nullptr;
+    if (num < 2) num = 1;
     pool = new ThreadPool(num);
     atexit([&]() {
       delete pool;
@@ -138,18 +139,30 @@ ThreadPool* ThreadPool::get() {
 }
 
 void ThreadPool::runTasks(std::function<void* ()> getTask,
-                          std::function<void (void*)> runTask) {
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "pool run tasks on " << threads.size() << " threads:\n"; }
+                          std::vector<std::function<void (void*)>>& runTaskers) {
+  if (threads.size() == 0) {
+    // no multiple cores, just run sequentially
+    assert(runTaskers.size() == 1);
+    while (1) {
+      auto task = getTask();
+      if (!task) break;
+      runTaskers[0](task);
+    }
+    return;
+  }
+  // run in parallel on threads
   // TODO: fancy work stealing
+  assert(runTaskers.size() == threads.size());
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "pool run tasks on " << threads.size() << " threads:\n"; }
   assert(Thread::onMainThread());
   assert(!running);
   running = true;
   std::unique_lock<std::mutex> lock(mutex);
   ready = 0;
-  for (auto& thread : threads) {
-    thread->runTasks([&]() -> void* {
+  for (size_t i = 0; i < threads.size(); i++) {
+    threads[i]->runTasks([&]() -> void* {
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "get a task, lock\n"; }
-      std::lock_guard<std::mutex> lock(mutex);
+      std::lock_guard<std::mutex> lock(mutex); // TODO: we really could use atomix
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       locked\n"; }
       auto ret = getTask();
       if (ret == nullptr) {
@@ -161,12 +174,16 @@ void ThreadPool::runTasks(std::function<void* ()> getTask,
         }
       }
       return ret;
-    }, runTask);
+    }, runTaskers[i]);
   }
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "main thread waiting\n"; }
   condition.wait(lock);
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "main thread continuing.............\n"; }
   running = false;
+}
+
+size_t ThreadPool::size() {
+  return threads.size();
 }
 
 bool ThreadPool::isRunning() {

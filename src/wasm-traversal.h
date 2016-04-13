@@ -110,12 +110,6 @@ struct Task {
   Task(TaskFunc func, Expression** currp) : func(func), currp(currp) {}
 };
 
-// Expression traversal info is global, so that it can be thread_local
-
-extern thread_local Expression *replace; // a node to replace
-
-extern thread_local std::vector<Task> stack; // stack of tasks
-
 //
 // Base class for all WasmWalkers, which can traverse an AST
 // and provide the option to replace nodes while doing so.
@@ -136,6 +130,9 @@ struct Walker : public Visitor<SubType> {
   // so forth are set up so that Functions can be processed in parallel, so
   // if you do not ad global state that could be raced on, your pass could be
   // function-parallel.
+  //
+  // Function-parallel passes create an instance of the Walker class per core.
+  // TODO: docs
   bool isFunctionParallel() { return false; }
 
   // Node replacing as we walk - call replaceCurrent from
@@ -159,7 +156,6 @@ struct Walker : public Visitor<SubType> {
     for (auto curr : module->exports) {
       self->visitExport(curr);
     }
-// XXX move parallelism to PASS. only one pass manager can live at a time. but passes can do internal traversals etc.
 
     // if this is not a function-parallel traversal, or
     // we are not on the main thread (so we are a helper
@@ -167,7 +163,7 @@ struct Walker : public Visitor<SubType> {
     // we could use more cores than is beneficial), run
     // sequentially
 std::cerr << "start walk on module " << self->isFunctionParallel() << " : " << Thread::onMainThread() << "\n";
-    if (!self->isFunctionParallel() || !Thread::onMainThread()) {
+    if (!self->isFunctionParallel()) {
       for (auto curr : module->functions) {
         self->walk(curr->body);
         self->visitFunction(curr);
@@ -175,8 +171,22 @@ std::cerr << "start walk on module " << self->isFunctionParallel() << " : " << T
     } else {
 std::cerr << "PARALLE\n";
       // execute in parallel on helper threads
+      size_t num = ThreadPool::get()->size();
+      std::vector<std::unique_ptr<SubType>> instances;
+      std::vector<std::function<void (void*)>> runTaskers;
+      for (size_t i = 0; i < num; i++) {
+        auto* instance = new SubType();
+        instances.push_back(std::unique_ptr<SubType>(instance));
+        runTaskers.push_back([&](void* curr_) {
+std::cerr << "trav do some work!!!!\n";
+          Function* curr = static_cast<Function*>(curr_);
+std::cerr << "trav do some work on " << curr->name << " using " << instance << "\n";
+          // do the current task
+          instance->walk(curr->body);
+          instance->visitFunction(curr);
+        });
+      }
       size_t nextFunction = 0;
-
       ThreadPool::get()->runTasks([&]() -> void* {
 std::cerr << "trav get task, next is " << nextFunction << "\n";
 
@@ -187,15 +197,7 @@ std::cerr << "trav done, no next\n";
         } 
 std::cerr << "trav return a function to work on \n";
         return static_cast<void*>(module->functions[nextFunction++]);
-      }, [&](void* curr_) {
-std::cerr << "trav do some work!!!!\n";
-        Function* curr = static_cast<Function*>(curr_);
-std::cerr << "trav do some work on " << curr->name << "\n";
-        // do the current task
-        self->walk(curr->body);
-        self->visitFunction(curr);
-      });
-
+      }, runTaskers);
     }
     self->visitTable(&module->table);
     self->visitMemory(&module->memory);
@@ -260,6 +262,10 @@ std::cerr << "trav do some work on " << curr->name << "\n";
   static void doVisitHost(SubType* self, Expression** currp)         { self->visitExpression(*currp); self->visitHost((*currp)->cast<Host>()); }
   static void doVisitNop(SubType* self, Expression** currp)          { self->visitExpression(*currp); self->visitNop((*currp)->cast<Nop>()); }
   static void doVisitUnreachable(SubType* self, Expression** currp)  { self->visitExpression(*currp); self->visitUnreachable((*currp)->cast<Unreachable>()); }
+
+private:
+  Expression *replace; // a node to replace
+  std::vector<Task> stack; // stack of tasks
 };
 
 // Walks in post-order, i.e., children first. When there isn't an obvious

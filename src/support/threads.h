@@ -88,7 +88,9 @@ public:
   // sends them to workers to be executed. This method
   // blocks until all tasks are complete.
   void runTasks(std::function<void* ()> getTask,
-                std::function<void (void*)> runTask);
+                std::vector<std::function<void (void*)>>& runTaskers);
+
+  size_t size();
 
   static bool isRunning();
 };
