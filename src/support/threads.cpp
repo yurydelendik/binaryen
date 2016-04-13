@@ -24,8 +24,6 @@
 
 namespace wasm {
 
-std::mutex debugLock;
-
 // Global thread information
 
 bool setMainThreadId = false;
@@ -52,9 +50,8 @@ Thread::Thread(std::function<void ()> onReady) {
   assert(onMainThread());
   // first piece of work for us is to notify we are ready
   doWork = [&]() {
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << " thread is up, cann onReady!!!\n"; }
     onReady();
-    return false;
+    return ThreadWorkState::Finished;
   };
   thread = std::unique_ptr<std::thread>(new std::thread(mainLoop, this));
 }
@@ -69,7 +66,7 @@ Thread::~Thread() {
   thread->join();
 }
 
-void Thread::work(std::function<bool ()> doWork_) {
+void Thread::work(std::function<ThreadWorkState ()> doWork_) {
   // TODO: fancy work stealing
   assert(onMainThread());
   doWork = doWork_;
@@ -89,12 +86,8 @@ void Thread::mainLoop(void *self_) {
   auto* self = static_cast<Thread*>(self_);
   while (1) {
     std::unique_lock<std::mutex> lock(self->mutex);
-  // run tasks until they are all done
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " get some work!!!\n"; }
-    while (self->doWork()) {
-      {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< "    the work continues...\n"; }
-    }
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self << " wait.\n"; }
+    // run tasks until they are all done
+    while (self->doWork() == ThreadWorkState::More) {}
     self->condition.wait(lock);
     if (self->done) break;
   }
@@ -109,18 +102,12 @@ std::cerr << "create thread pool of size " << num << "\n";
   std::unique_lock<std::mutex> lock(mutex);
   std::atomic<size_t> ready;
   ready.store(0, std::memory_order_seq_cst);
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  " set to 0 on thread " << std::this_thread::get_id() << "\n"; }
   for (size_t i = 0; i < num; i++) {
     threads.emplace_back(std::unique_ptr<Thread>(new Thread([&] {
       auto old = ready.fetch_add(1, std::memory_order_seq_cst);
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  " a new thread is ready, total " << (old+1) << " : " << num << " on " << std::this_thread::get_id() << "\n"; }
       if (old + 1 == num) {
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  " aalmost all ready, try to lock on " << std::this_thread::get_id() << "\n"; }
-        {
-          std::lock_guard<std::mutex> lock(mutex); // TODO
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  "  all ready!\n"; }
-          condition.notify_one();
-        }
+        std::lock_guard<std::mutex> lock(mutex);
+        condition.notify_one();
       }
     })));
   }
@@ -129,7 +116,6 @@ std::cerr << "create thread pool of size " << num << "\n";
 
 ThreadPool* ThreadPool::get() {
   if (!pool) {
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  "no pool, must create...\n"; }
     assert(Thread::onMainThread());
     size_t num = std::thread::hardware_concurrency();
     if (num < 2) num = 1;
@@ -138,24 +124,22 @@ ThreadPool* ThreadPool::get() {
       delete pool;
       pool = nullptr;
     });
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  "Pool is ready!\n"; }
   }
   return pool;
 }
 
-void ThreadPool::work(std::vector<std::function<bool ()>>& doWorkers) {
+void ThreadPool::work(std::vector<std::function<ThreadWorkState ()>>& doWorkers) {
   size_t num = threads.size();
   // If no multiple cores, or on a side thread, do not use worker threads
   if (num == 0 || !Thread::onMainThread()) {
     // just run sequentially
     assert(doWorkers.size() > 0);
-    while (doWorkers[0]()) {}
+    while (doWorkers[0]() == ThreadWorkState::More) {}
     return;
   }
   // run in parallel on threads
   // TODO: fancy work stealing
   assert(doWorkers.size() == num);
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "pool run tasks on " << num << " threads:\n"; }
   assert(!running);
   running = true;
   std::unique_lock<std::mutex> lock(mutex);
@@ -163,23 +147,18 @@ void ThreadPool::work(std::vector<std::function<bool ()>>& doWorkers) {
   ready.store(0, std::memory_order_seq_cst);
   for (size_t i = 0; i < num; i++) {
     threads[i]->work([i, num, this, &doWorkers, &ready]() {
-//{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "do some work\n"; }
-      if (!doWorkers[i]()) {
+      if (doWorkers[i]() == ThreadWorkState::Finished) {
         auto old = ready.fetch_add(1, std::memory_order_seq_cst);
-//{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "    work is finished: " << old << "\n"; }
         if (old + 1 == num) {
-//{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       all finished, lock and notify!\n"; }
           std::lock_guard<std::mutex> lock(mutex);
           condition.notify_one();
         }
-        return false;
+        return ThreadWorkState::Finished;
       }
-      return true;
+      return ThreadWorkState::More;
     });
   }
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "main thread waiting\n"; }
   condition.wait(lock);
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "main thread continuing.............\n"; }
   running = false;
 }
 

@@ -32,8 +32,6 @@
 
 namespace wasm {
 
-extern std::mutex debugLock;
-
 template<typename SubType, typename ReturnType = void>
 struct Visitor {
   // Expression visitors
@@ -124,7 +122,9 @@ struct Walker : public Visitor<SubType> {
   // function-parallel.
   //
   // Function-parallel passes create an instance of the Walker class per core.
-  // TODO: docs
+  // That means that you can't rely on Walker object properties to exist for
+  // all your functions, and you can't expect a new object for function
+  // either (which could be very inefficient).
   bool isFunctionParallel() { return false; }
 
   // Node replacing as we walk - call replaceCurrent from
@@ -154,39 +154,36 @@ struct Walker : public Visitor<SubType> {
     // thread; if we allowed creating a pool in helpers,
     // we could use more cores than is beneficial), run
     // sequentially
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "start walk on module " << self->isFunctionParallel() << " : " << Thread::onMainThread() << "\n"; }
     if (!self->isFunctionParallel()) {
       for (auto curr : module->functions) {
         self->walk(curr->body);
         self->visitFunction(curr);
       }
     } else {
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "PARALLE\n";}
       // execute in parallel on helper threads
       size_t num = ThreadPool::get()->size();
       std::vector<std::unique_ptr<SubType>> instances;
-      std::vector<std::function<bool ()>> doWorkers;
+      std::vector<std::function<ThreadWorkState ()>> doWorkers;
       std::atomic<size_t> nextFunction;
       nextFunction = 0;
       size_t numFunctions = module->functions.size();
       for (size_t i = 0; i < num; i++) {
         auto* instance = new SubType();
         instances.push_back(std::unique_ptr<SubType>(instance));
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "set up work func with " << i << " : " << instance << "\n";}
         doWorkers.push_back([instance, &nextFunction, numFunctions, &module]() {
           auto index = nextFunction.fetch_add(1);
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "trav get task, next is " << nextFunction << " / " << numFunctions << "\n";}
           // get the next task, if there is one
           if (index >= numFunctions) {
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "trav done, no next\n";}
-            return false; // nothing left
+            return ThreadWorkState::Finished; // nothing left
           }
           Function* curr = module->functions[index];
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "trav do some work on " << curr->name << " using " << instance << "\n";}
           // do the current task
           instance->walk(curr->body);
           instance->visitFunction(curr);
-          return true;
+          if (index + 1 == numFunctions) {
+            return ThreadWorkState::Finished; // we did the last one
+          }
+          return ThreadWorkState::More;
         });
       }
       ThreadPool::get()->work(doWorkers);

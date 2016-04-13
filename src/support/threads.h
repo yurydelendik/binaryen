@@ -30,6 +30,13 @@
 
 namespace wasm {
 
+// The work state of a helper thread - is there more to do,
+// or are we finished for now.
+enum class ThreadWorkState {
+  More,
+  Finished
+};
+
 //
 // A helper thread.
 //
@@ -41,7 +48,7 @@ class Thread {
   std::mutex mutex;
   std::condition_variable condition;
   bool done = false;
-  std::function<bool ()> doWork;
+  std::function<ThreadWorkState ()> doWork;
 
 public:
   Thread(std::function<void ()> onReady);
@@ -49,7 +56,7 @@ public:
 
   // Start to do work, calling doWork() until
   // it returns false.
-  void work(std::function<bool ()> doWork);
+  void work(std::function<ThreadWorkState ()> doWork);
 
   // Checks if execution is the main thread.
   static bool onMainThread();
@@ -82,7 +89,7 @@ public:
   // getTask() (in a thread-safe manner) to get tasks, and
   // sends them to workers to be executed. This method
   // blocks until all tasks are complete.
-  void work(std::vector<std::function<bool ()>>& doWorkers);
+  void work(std::vector<std::function<ThreadWorkState ()>>& doWorkers);
 
   size_t size();
 
