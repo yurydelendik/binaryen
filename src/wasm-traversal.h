@@ -100,16 +100,6 @@ struct Visitor {
   }
 };
 
-// Traversal tasks
-
-typedef void (*TaskFunc)(void*, Expression**);
-
-struct Task {
-  TaskFunc func;
-  Expression** currp;
-  Task(TaskFunc func, Expression** currp) : func(func), currp(currp) {}
-};
-
 //
 // Base class for all WasmWalkers, which can traverse an AST
 // and provide the option to replace nodes while doing so.
@@ -177,14 +167,16 @@ std::cerr << "PARALLE\n";
       for (size_t i = 0; i < num; i++) {
         auto* instance = new SubType();
         instances.push_back(std::unique_ptr<SubType>(instance));
-        runTaskers.push_back([&](void* curr_) {
-std::cerr << "trav do some work!!!!\n";
-          Function* curr = static_cast<Function*>(curr_);
-std::cerr << "trav do some work on " << curr->name << " using " << instance << "\n";
-          // do the current task
-          instance->walk(curr->body);
-          instance->visitFunction(curr);
-        });
+        [&](size_t closureI, SubType* closureInstance) {
+  std::cerr << "set up work func with " << closureI << " : " << closureInstance << "\n";
+          runTaskers.push_back([&](void* curr_) {
+            Function* curr = static_cast<Function*>(curr_);
+  std::cerr << "trav " << closureI << " do some work on " << curr->name << " using " << closureInstance << "\n";
+            // do the current task
+            closureInstance->walk(curr->body);
+            closureInstance->visitFunction(curr);
+          });
+        }(i, instance);
       }
       size_t nextFunction = 0;
       ThreadPool::get()->runTasks([&]() -> void* {
@@ -207,14 +199,20 @@ std::cerr << "trav return a function to work on \n";
   // Walk implementation. We don't use recursion as ASTs may be highly
   // nested.
 
-  typedef void (*SpecificTaskFunc)(SubType*, Expression**);
+  typedef void (*TaskFunc)(SubType*, Expression**);
 
-  void pushTask(SpecificTaskFunc func, Expression** currp) {
-    stack.emplace_back((TaskFunc)func, currp);
+  struct Task {
+    TaskFunc func;
+    Expression** currp;
+    Task(TaskFunc func, Expression** currp) : func(func), currp(currp) {}
+  };
+
+  void pushTask(TaskFunc func, Expression** currp) {
+    stack.emplace_back(func, currp);
   }
-  void maybePushTask(SpecificTaskFunc func, Expression** currp) {
+  void maybePushTask(TaskFunc func, Expression** currp) {
     if (*currp) {
-      stack.emplace_back((TaskFunc)func, currp);
+      stack.emplace_back(func, currp);
     }
   }
   Task popTask() {
@@ -264,7 +262,7 @@ std::cerr << "trav return a function to work on \n";
   static void doVisitUnreachable(SubType* self, Expression** currp)  { self->visitExpression(*currp); self->visitUnreachable((*currp)->cast<Unreachable>()); }
 
 private:
-  Expression *replace; // a node to replace
+  Expression *replace = nullptr; // a node to replace
   std::vector<Task> stack; // stack of tasks
 };
 
