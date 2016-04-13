@@ -44,10 +44,15 @@ static ThreadPool* pool = nullptr;
 
 // Thread
 
-Thread::Thread(std::function<void ()> onReady) : onReady(onReady) {
+Thread::Thread(std::function<void ()> onReady) {
   // main thread object's constructor itself can
   // happen before onMainThread is ready
   assert(onMainThread());
+  // first piece of work for us is to notify we are ready
+  doWork = [&]() {
+    onReady();
+    return false;
+  };
   thread = std::unique_ptr<std::thread>(new std::thread(mainLoop, this));
 }
 
@@ -61,12 +66,10 @@ Thread::~Thread() {
   thread->join();
 }
 
-void Thread::runTasks(std::function<void* ()> getTask_,
-                      std::function<void (void*)> runTask_) {
+void Thread::work(std::function<bool ()> doWork_) {
   // TODO: fancy work stealing
   assert(onMainThread());
-  getTask = getTask_;
-  runTask = runTask_;
+  doWork = doWork_;
   {
     std::lock_guard<std::mutex> lock(mutex);
     condition.notify_one();
@@ -84,25 +87,15 @@ std::mutex debugLock;
 void Thread::mainLoop(void *self_) {
   auto* self = static_cast<Thread*>(self_);
   while (1) {
-    {
-      std::unique_lock<std::mutex> lock(self->mutex);
-
-      self->onReady();
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self << " notified ready\n"; }
-      self->condition.wait(lock);
+    std::unique_lock<std::mutex> lock(self->mutex);
+  // run tasks until they are all done
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " get some work!!!\n"; }
+    while (self->doWork()) {
+      {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< "    the work continues...\n"; }
     }
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " action!!!\n"; }
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self << " wait.\n"; }
+    self->condition.wait(lock);
     if (self->done) break;
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " run all tasks\n"; }
-    // run tasks until they are all done
-    while (1) {
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " get a task!!!\n"; }
-      auto task = self->getTask();
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< "   got " << task << "\n"; }
-      if (!task) break;
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " run task!!!\n"; }
-      self->runTask(task);
-    }
   }
 }
 
@@ -115,6 +108,7 @@ ThreadPool::ThreadPool(size_t num) {
   ready = 0;
   for (size_t i = 0; i < num; i++) {
     threads.emplace_back(std::unique_ptr<Thread>(new Thread([&] {
+      std::unique_lock<std::mutex> lock(mutex); // TODO sink
       auto old = ready.fetch_add(1);
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  " a new thread is ready, total " << old << "\n"; }
       if (old + 1 == threads.size()) {
@@ -128,54 +122,52 @@ ThreadPool::ThreadPool(size_t num) {
 
 ThreadPool* ThreadPool::get() {
   if (!pool) {
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  "no pool, must create...\n"; }
     assert(Thread::onMainThread());
     size_t num = std::thread::hardware_concurrency();
     if (num < 2) num = 1;
     pool = new ThreadPool(num);
     atexit([&]() {
       delete pool;
+      pool = nullptr;
     });
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  "Pool is ready!\n"; }
   }
   return pool;
 }
 
-void ThreadPool::runTasks(std::function<void* ()> getTask,
-                          std::vector<std::function<void (void*)>>& runTaskers) {
+void ThreadPool::work(std::vector<std::function<bool ()>>& doWorkers) {
+  size_t num = threads.size();
   // If no multiple cores, or on a side thread, do not use worker threads
-  if (threads.size() == 0 || !Thread::onMainThread()) {
+  if (num == 0 || !Thread::onMainThread()) {
     // just run sequentially
-    assert(runTaskers.size() > 0);
-    while (1) {
-      auto task = getTask();
-      if (!task) break;
-      runTaskers[0](task);
-    }
+    assert(doWorkers.size() > 0);
+    while (doWorkers[0]()) {}
     return;
   }
   // run in parallel on threads
   // TODO: fancy work stealing
-  assert(runTaskers.size() == threads.size());
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "pool run tasks on " << threads.size() << " threads:\n"; }
+  assert(doWorkers.size() == num);
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "pool run tasks on " << num << " threads:\n"; }
   assert(!running);
   running = true;
   std::unique_lock<std::mutex> lock(mutex);
   ready = 0;
-  for (size_t i = 0; i < threads.size(); i++) {
-    threads[i]->runTasks([&]() -> void* {
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "get a task, lock\n"; }
-      std::lock_guard<std::mutex> lock(mutex); // TODO: we really could use atomix
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       locked\n"; }
-      auto ret = getTask();
-      if (ret == nullptr) {
+  for (size_t i = 0; i < num; i++) {
+    threads[i]->work([i, num, this, &doWorkers]() {
+//{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "do some work\n"; }
+      if (!doWorkers[i]()) {
         auto old = ready.fetch_add(1);
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       finished: " << old << "\n"; }
-        if (old + 1 == threads.size()) {
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       all finished!\n"; }
+//{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "    work is finished: " << old << "\n"; }
+        if (old + 1 == num) {
+//{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       all finished, lock and notify!\n"; }
+          std::lock_guard<std::mutex> lock(mutex);
           condition.notify_one();
         }
+        return false;
       }
-      return ret;
-    }, runTaskers[i]);
+      return true;
+    });
   }
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "main thread waiting\n"; }
   condition.wait(lock);

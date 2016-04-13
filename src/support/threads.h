@@ -41,19 +41,15 @@ class Thread {
   std::mutex mutex;
   std::condition_variable condition;
   bool done = false;
-  std::function<void ()> onReady;
-  std::function<void* ()> getTask;
-  std::function<void (void*)> runTask;
+  std::function<bool ()> doWork;
 
 public:
   Thread(std::function<void ()> onReady);
   ~Thread();
 
-  // Start to run tasks, getting them using getTask,
-  // executing them using runTask, until getTask
-  // returns nullptr;
-  void runTasks(std::function<void* ()> getTask,
-                std::function<void (void*)> runTask);
+  // Start to do work, calling doWork() until
+  // it returns false.
+  void work(std::function<bool ()> doWork);
 
   // Checks if execution is the main thread.
   static bool onMainThread();
@@ -87,8 +83,7 @@ public:
   // getTask() (in a thread-safe manner) to get tasks, and
   // sends them to workers to be executed. This method
   // blocks until all tasks are complete.
-  void runTasks(std::function<void* ()> getTask,
-                std::vector<std::function<void (void*)>>& runTaskers);
+  void work(std::vector<std::function<bool ()>>& doWorkers);
 
   size_t size();
 
