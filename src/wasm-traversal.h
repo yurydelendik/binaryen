@@ -125,18 +125,13 @@ struct Walker : public Visitor<SubType> {
   // Node replacing as we walk - call replaceCurrent from
   // your visitors.
 
-  Expression *replace = nullptr;
+   Expression *replace = nullptr;
 
   void replaceCurrent(Expression *expression) {
     replace = expression;
   }
 
   // Walk starting
-
-  void startWalk(Function *func) {
-    SubType* self = static_cast<SubType*>(this);
-    self->walk(func->body);
-  }
 
   void startWalk(Module *module) {
     // Dispatch statically through the SubType.
@@ -158,7 +153,7 @@ struct Walker : public Visitor<SubType> {
 std::cerr << "start walk on module " << self->isFunctionParallel() << " : " << Thread::onMainThread() << "\n";
     if (!self->isFunctionParallel() || !Thread::onMainThread()) {
       for (auto curr : module->functions) {
-        self->startWalk(curr);
+        self->walk(curr->body);
         self->visitFunction(curr);
       }
     } else {
@@ -181,7 +176,7 @@ std::cerr << "trav do some work!!!!\n";
         Function* curr = static_cast<Function*>(curr_);
 std::cerr << "trav do some work on " << curr->name << "\n";
         // do the current task
-        self->startWalk(curr);
+        self->walk(curr->body);
         self->visitFunction(curr);
       });
 
@@ -203,7 +198,7 @@ std::cerr << "trav do some work on " << curr->name << "\n";
     Task(TaskFunc func, Expression** currp) : func(func), currp(currp) {}
   };
 
-  std::vector<Task> stack;
+   std::vector<Task> stack;
 
   void pushTask(TaskFunc func, Expression** currp) {
     stack.emplace_back(func, currp);
