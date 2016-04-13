@@ -98,13 +98,12 @@ void Thread::mainLoop(void *self_) {
 
 ThreadPool::ThreadPool(size_t num) {
   if (num == 1) return; // no multiple cores, don't create threads
-std::cerr << "create thread pool of size " << num << "\n";
   std::unique_lock<std::mutex> lock(mutex);
   std::atomic<size_t> ready;
-  ready.store(0, std::memory_order_seq_cst);
+  ready.store(0, std::memory_order_relaxed);
   for (size_t i = 0; i < num; i++) {
     threads.emplace_back(std::unique_ptr<Thread>(new Thread([&] {
-      auto old = ready.fetch_add(1, std::memory_order_seq_cst);
+      auto old = ready.fetch_add(1, std::memory_order_relaxed);
       if (old + 1 == num) {
         std::lock_guard<std::mutex> lock(mutex);
         condition.notify_one();
@@ -144,11 +143,11 @@ void ThreadPool::work(std::vector<std::function<ThreadWorkState ()>>& doWorkers)
   running = true;
   std::unique_lock<std::mutex> lock(mutex);
   std::atomic<size_t> ready;
-  ready.store(0, std::memory_order_seq_cst);
+  ready.store(0, std::memory_order_relaxed);
   for (size_t i = 0; i < num; i++) {
     threads[i]->work([i, num, this, &doWorkers, &ready]() {
       if (doWorkers[i]() == ThreadWorkState::Finished) {
-        auto old = ready.fetch_add(1, std::memory_order_seq_cst);
+        auto old = ready.fetch_add(1, std::memory_order_relaxed);
         if (old + 1 == num) {
           std::lock_guard<std::mutex> lock(mutex);
           condition.notify_one();
