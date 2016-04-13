@@ -40,11 +40,12 @@ class Thread {
   std::mutex mutex;
   std::condition_variable condition;
   bool done = false;
+  std::function<void ()> onReady;
   std::function<void* ()> getTask;
   std::function<void (void*)> runTask;
 
 public:
-  Thread();
+  Thread(std::function<void ()> onReady);
   ~Thread();
 
   // Start to run tasks, getting them using getTask,

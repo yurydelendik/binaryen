@@ -44,7 +44,7 @@ static ThreadPool* pool = nullptr;
 
 // Thread
 
-Thread::Thread() {
+Thread::Thread(std::function<void ()> onReady) : onReady(onReady) {
   // main thread object's constructor itself can
   // happen before onMainThread is ready
   assert(onMainThread());
@@ -79,25 +79,33 @@ bool Thread::onMainThread() {
   return !setMainThreadId || std::this_thread::get_id() == mainThreadId;
 }
 
+std::mutex debugLock;
+
 void Thread::mainLoop(void *self_) {
   auto* self = static_cast<Thread*>(self_);
+  bool notifiedReady = false;
   while (1) {
     {
       std::unique_lock<std::mutex> lock(self->mutex);
-std::cerr << self->thread->get_id() << " wait for action\n";
 
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self << " wait for action\n"; }
+      if (!notifiedReady) {
+        self->onReady();
+        notifiedReady = true;
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self << " notified ready\n"; }
+      }
       self->condition.wait(lock);
     }
-std::cerr << self->thread->get_id()<< " action!!!\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " action!!!\n"; }
     if (self->done) break;
-std::cerr << self->thread->get_id()<< " run all tasks\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " run all tasks\n"; }
     // run tasks until they are all done
     while (1) {
-std::cerr << self->thread->get_id()<< " get a task!!!\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " get a task!!!\n"; }
       auto task = self->getTask();
-std::cerr << self->thread->get_id()<< "   got " << task << "\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< "   got " << task << "\n"; }
       if (!task) break;
-std::cerr << self->thread->get_id()<< " run task!!!\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " run task!!!\n"; }
       self->runTask(task);
     }
   }
@@ -107,9 +115,18 @@ std::cerr << self->thread->get_id()<< " run task!!!\n";
 // ThreadPool
 
 ThreadPool::ThreadPool(size_t num) {
+  size_t finished = 0;
+  std::unique_lock<std::mutex> lock(mutex);
   for (size_t i = 0; i < num; i++) {
-    threads.emplace_back(std::unique_ptr<Thread>(new Thread()));
+    threads.emplace_back(std::unique_ptr<Thread>(new Thread([&] {
+      std::lock_guard<std::mutex> lock(mutex);
+      finished++;
+      if (finished == threads.size()) {
+        condition.notify_one();
+      }
+    })));
   }
+  condition.wait(lock);
 }
 
 ThreadPool* ThreadPool::get() {
@@ -126,7 +143,7 @@ ThreadPool* ThreadPool::get() {
 
 void ThreadPool::runTasks(std::function<void* ()> getTask,
                           std::function<void (void*)> runTask) {
-std::cerr << "pool run tasks on " << threads.size() << " threads:\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "pool run tasks on " << threads.size() << " threads:\n"; }
   // TODO: fancy work stealing
   assert(Thread::onMainThread());
   assert(!running);
@@ -135,15 +152,15 @@ std::cerr << "pool run tasks on " << threads.size() << " threads:\n";
   std::unique_lock<std::mutex> lock(mutex);
   for (auto& thread : threads) {
     thread->runTasks([&]() -> void* {
-std::cerr << "get a task, lock\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "get a task, lock\n"; }
       std::lock_guard<std::mutex> lock(mutex);
-std::cerr << "       locked\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       locked\n"; }
       auto ret = getTask();
       if (ret == nullptr) {
         finished++;
-std::cerr << "       finished: " << finished << "\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       finished: " << finished << "\n"; }
         if (finished == threads.size()) {
-std::cerr << "       all finished!\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       all finished!\n"; }
           // they have all finished
           condition.notify_one();
         }
@@ -151,9 +168,9 @@ std::cerr << "       all finished!\n";
       return ret;
     }, runTask);
   }
-std::cerr << "main thread waiting\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "main thread waiting\n"; }
   condition.wait(lock);
-std::cerr << "main thread continuing.............\n";
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "main thread continuing.............\n"; }
   running = false;
 }
 
