@@ -159,6 +159,8 @@ struct Walker : public Visitor<SubType> {
     for (auto curr : module->exports) {
       self->visitExport(curr);
     }
+// XXX move parallelism to PASS. only one pass manager can live at a time. but passes can do internal traversals etc.
+
     // if this is not a function-parallel traversal, or
     // we are not on the main thread (so we are a helper
     // thread; if we allowed creating a pool in helpers,

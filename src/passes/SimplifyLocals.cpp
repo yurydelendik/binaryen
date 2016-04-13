@@ -33,8 +33,6 @@
 namespace wasm {
 
 struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals>> {
-  bool isFunctionParallel() { return true; }
-
   struct SinkableInfo {
     Expression** item;
     EffectAnalyzer effects;
