@@ -143,8 +143,8 @@ void ThreadPool::runTasks(std::function<void* ()> getTask,
                           std::vector<std::function<void (void*)>>& runTaskers) {
   // If no multiple cores, or on a side thread, do not use worker threads
   if (threads.size() == 0 || !Thread::onMainThread()) {
-    // no multiple cores, just run sequentially
-    assert(runTaskers.size() == 1);
+    // just run sequentially
+    assert(runTaskers.size() > 0);
     while (1) {
       auto task = getTask();
       if (!task) break;
