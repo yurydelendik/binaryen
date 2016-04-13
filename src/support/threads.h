@@ -70,6 +70,7 @@ class ThreadPool {
   std::vector<std::unique_ptr<Thread>> threads;
   bool running = false;
   std::mutex mutex;
+  std::condition_variable condition;
 
 private:
   ThreadPool(size_t num);

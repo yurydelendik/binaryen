@@ -84,11 +84,22 @@ void Thread::mainLoop(void *self_) {
   while (1) {
     {
       std::unique_lock<std::mutex> lock(self->mutex);
-      self->condition.wait(lock);//, [&]{ return OptimizerWorker::done || OptimizerWorker::inputs.size() > 0; });
+std::cerr << self->thread->get_id() << " wait for action\n";
+
+      self->condition.wait(lock);
     }
+std::cerr << self->thread->get_id()<< " action!!!\n";
     if (self->done) break;
-    // grab next task
-    self->runTask(self->getTask());
+std::cerr << self->thread->get_id()<< " run all tasks\n";
+    // run tasks until they are all done
+    while (1) {
+std::cerr << self->thread->get_id()<< " get a task!!!\n";
+      auto task = self->getTask();
+std::cerr << self->thread->get_id()<< "   got " << task << "\n";
+      if (!task) break;
+std::cerr << self->thread->get_id()<< " run task!!!\n";
+      self->runTask(task);
+    }
   }
 }
 
@@ -115,17 +126,34 @@ ThreadPool* ThreadPool::get() {
 
 void ThreadPool::runTasks(std::function<void* ()> getTask,
                           std::function<void (void*)> runTask) {
-std::cerr << "pool run tasks\n";
+std::cerr << "pool run tasks on " << threads.size() << " threads:\n";
   // TODO: fancy work stealing
   assert(Thread::onMainThread());
   assert(!running);
   running = true;
+  size_t finished = 0;
+  std::unique_lock<std::mutex> lock(mutex);
   for (auto& thread : threads) {
     thread->runTasks([&]() -> void* {
+std::cerr << "get a task, lock\n";
       std::lock_guard<std::mutex> lock(mutex);
-      return getTask();
+std::cerr << "       locked\n";
+      auto ret = getTask();
+      if (ret == nullptr) {
+        finished++;
+std::cerr << "       finished: " << finished << "\n";
+        if (finished == threads.size()) {
+std::cerr << "       all finished!\n";
+          // they have all finished
+          condition.notify_one();
+        }
+      }
+      return ret;
     }, runTask);
   }
+std::cerr << "main thread waiting\n";
+  condition.wait(lock);
+std::cerr << "main thread continuing.............\n";
   running = false;
 }
 

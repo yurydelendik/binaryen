@@ -167,13 +167,19 @@ std::cerr << "PARALLE\n";
       size_t nextFunction = 0;
 
       ThreadPool::get()->runTasks([&]() -> void* {
+std::cerr << "trav get task, next is " << nextFunction << "\n";
+
         // get the next task, if there is one
         if (nextFunction == module->functions.size()) {
+std::cerr << "trav done, no next\n";
           return nullptr; // nothing left
         } 
+std::cerr << "trav return a function to work on \n";
         return static_cast<void*>(module->functions[nextFunction++]);
       }, [&](void* curr_) {
+std::cerr << "trav do some work!!!!\n";
         Function* curr = static_cast<Function*>(curr_);
+std::cerr << "trav do some work on " << curr->name << "\n";
         // do the current task
         self->startWalk(curr);
         self->visitFunction(curr);
