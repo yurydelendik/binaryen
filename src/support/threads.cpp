@@ -97,8 +97,7 @@ void Thread::mainLoop(void *self_) {
 
 ThreadPool::ThreadPool(size_t num) {
   for (size_t i = 0; i < num; i++) {
-    threads[i] = std::unique_ptr<Thread>(new Thread());
-
+    threads.emplace_back(std::unique_ptr<Thread>(new Thread()));
   }
 }
 

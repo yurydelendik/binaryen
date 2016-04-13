@@ -35,7 +35,9 @@ void PassRegistry::registerPass(const char* name, const char *description, Creat
 
 Pass* PassRegistry::createPass(std::string name) {
   if (passInfos.find(name) == passInfos.end()) return nullptr;
-  return passInfos[name].create();
+  auto ret = passInfos[name].create();
+  ret->name = name;
+  return ret;
 }
 
 std::vector<std::string> PassRegistry::getRegisteredNames() {
@@ -66,6 +68,7 @@ void PassRunner::addDefaultOptimizationPasses() {
 void PassRunner::run(Module* module) {
   for (auto pass : passes) {
     currPass = pass;
+    if (debug) std::cerr << "[PassRunner] running pass: " << pass->name << std::endl;
     pass->run(this, module);
   }
 }
