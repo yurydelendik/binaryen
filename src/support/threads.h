@@ -21,6 +21,7 @@
 #ifndef wasm_support_threads_h
 #define wasm_support_threads_h
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -72,6 +73,7 @@ class ThreadPool {
   bool running = false;
   std::mutex mutex;
   std::condition_variable condition;
+  std::atomic<size_t> ready;
 
 private:
   ThreadPool(size_t num);

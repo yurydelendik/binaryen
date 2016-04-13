@@ -142,6 +142,7 @@ SET(wasm2asm_SOURCES
   src/emscripten-optimizer/parser.cpp
   src/emscripten-optimizer/simple_ast.cpp
   src/emscripten-optimizer/optimizer-shared.cpp
+  src/wasm-traversal.cpp
 )
 ADD_EXECUTABLE(wasm2asm
                ${wasm2asm_SOURCES})
@@ -165,6 +166,7 @@ INSTALL(TARGETS s2wasm DESTINATION bin)
 
 SET(wasm_as_SOURCES
   src/wasm-as.cpp
+  src/wasm-traversal.cpp
 )
 ADD_EXECUTABLE(wasm-as
                ${wasm_as_SOURCES})

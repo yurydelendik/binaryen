@@ -83,17 +83,12 @@ std::mutex debugLock;
 
 void Thread::mainLoop(void *self_) {
   auto* self = static_cast<Thread*>(self_);
-  bool notifiedReady = false;
   while (1) {
     {
       std::unique_lock<std::mutex> lock(self->mutex);
 
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self << " wait for action\n"; }
-      if (!notifiedReady) {
-        self->onReady();
-        notifiedReady = true;
+      self->onReady();
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self << " notified ready\n"; }
-      }
       self->condition.wait(lock);
     }
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << self<< " action!!!\n"; }
@@ -115,13 +110,14 @@ void Thread::mainLoop(void *self_) {
 // ThreadPool
 
 ThreadPool::ThreadPool(size_t num) {
-  size_t finished = 0;
   std::unique_lock<std::mutex> lock(mutex);
+  ready = 0;
   for (size_t i = 0; i < num; i++) {
     threads.emplace_back(std::unique_ptr<Thread>(new Thread([&] {
-      std::lock_guard<std::mutex> lock(mutex);
-      finished++;
-      if (finished == threads.size()) {
+      auto old = ready.fetch_add(1);
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  " a new thread is ready, total " << old << "\n"; }
+      if (old + 1 == threads.size()) {
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr <<  "  all ready!\n"; }
         condition.notify_one();
       }
     })));
@@ -148,8 +144,8 @@ void ThreadPool::runTasks(std::function<void* ()> getTask,
   assert(Thread::onMainThread());
   assert(!running);
   running = true;
-  size_t finished = 0;
   std::unique_lock<std::mutex> lock(mutex);
+  ready = 0;
   for (auto& thread : threads) {
     thread->runTasks([&]() -> void* {
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "get a task, lock\n"; }
@@ -157,11 +153,10 @@ void ThreadPool::runTasks(std::function<void* ()> getTask,
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       locked\n"; }
       auto ret = getTask();
       if (ret == nullptr) {
-        finished++;
-{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       finished: " << finished << "\n"; }
-        if (finished == threads.size()) {
+        auto old = ready.fetch_add(1);
+{  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       finished: " << old << "\n"; }
+        if (old + 1 == threads.size()) {
 {  std::lock_guard<std::mutex> lock(debugLock); std::cerr << "       all finished!\n"; }
-          // they have all finished
           condition.notify_one();
         }
       }
