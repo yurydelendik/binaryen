@@ -112,7 +112,7 @@ ThreadPool::ThreadPool(size_t num) {
   }
   if (ready.load() < num) {
     condition.wait(lock);
-  }
+  } // otherwise, don't wait for the notification
 }
 
 ThreadPool* ThreadPool::get() {
@@ -161,7 +161,7 @@ void ThreadPool::work(std::vector<std::function<ThreadWorkState ()>>& doWorkers)
   }
   if (ready.load() < num) {
     condition.wait(lock);
-  }
+  } // otherwise, don't wait for the notification
   running = false;
 }
 
