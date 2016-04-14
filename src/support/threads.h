@@ -79,7 +79,7 @@ class ThreadPool {
   std::atomic<size_t> ready;
 
 private:
-  ThreadPool(size_t num);
+  void initialize(size_t num);
 
 public:
   // Get the singleton threadpool. This can return null

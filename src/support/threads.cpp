@@ -22,6 +22,16 @@
 #include "threads.h"
 
 
+// debugging tools
+
+#ifdef BINARYEN_THREAD_DEBUG
+std::mutex debug;
+#define DEBUG_PRINT(x) { std::lock_guard<std::mutex> lock(debug); x }
+#else
+#define DEBUG_PRINT(x)
+#endif
+
+
 namespace wasm {
 
 // Global thread information
@@ -95,10 +105,7 @@ void Thread::mainLoop(void *self_) {
 
 // ThreadPool
 
-//std::mutex debug;
-//#define DEBUG_PRINT(x) { std::lock_guard<std::mutex> lock(debug); x }
-
-ThreadPool::ThreadPool(size_t num) {
+void ThreadPool::initialize(size_t num) {
   if (num == 1) return; // no multiple cores, don't create threads
   std::unique_lock<std::mutex> lock(mutex);
   resetThreadsAreReady();
@@ -113,7 +120,8 @@ ThreadPool* ThreadPool::get() {
     assert(Thread::onMainThread());
     size_t num = std::thread::hardware_concurrency();
     if (num < 2) num = 1;
-    pool = new ThreadPool(num);
+    pool = new ThreadPool();
+    pool->initialize(num);
     atexit([&]() {
       delete pool;
       pool = nullptr;
@@ -154,14 +162,18 @@ bool ThreadPool::isRunning() {
 }
 
 void ThreadPool::notifyThreadIsReady() {
+  DEBUG_PRINT(std::cerr << "notify thread is ready\n";)
   ready.fetch_add(1);
+  condition.notify_one();
 }
 
 void ThreadPool::resetThreadsAreReady() {
+  DEBUG_PRINT(std::cerr << "reset threads are ready\n";)
   ready.store(0);
 }
 
 bool ThreadPool::areThreadsReady() {
+  DEBUG_PRINT(std::cerr << "are threads ready?\n";)
   return ready.load() == threads.size();
 }
 
