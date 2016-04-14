@@ -27,6 +27,8 @@
 namespace wasm {
 
 struct ReorderLocals : public WalkerPass<PostWalker<ReorderLocals>> {
+  bool isFunctionParallel() { return true; }
+
   std::map<Name, uint32_t> counts;
 
   void visitFunction(Function *curr) {
