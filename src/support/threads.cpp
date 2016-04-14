@@ -110,7 +110,9 @@ ThreadPool::ThreadPool(size_t num) {
       }
     })));
   }
-  condition.wait(lock);
+  if (ready.load() < num) {
+    condition.wait(lock);
+  }
 }
 
 ThreadPool* ThreadPool::get() {
@@ -157,7 +159,9 @@ void ThreadPool::work(std::vector<std::function<ThreadWorkState ()>>& doWorkers)
       return ThreadWorkState::More;
     });
   }
-  condition.wait(lock);
+  if (ready.load() < num) {
+    condition.wait(lock);
+  }
   running = false;
 }
 
