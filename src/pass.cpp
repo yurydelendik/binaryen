@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <chrono>
+
 #include <pass.h>
 
 namespace wasm {
@@ -68,8 +70,17 @@ void PassRunner::addDefaultOptimizationPasses() {
 void PassRunner::run(Module* module) {
   for (auto pass : passes) {
     currPass = pass;
-    if (debug) std::cerr << "[PassRunner] running pass: " << pass->name << std::endl;
+    std::chrono::high_resolution_clock::time_point before;
+    if (debug) {
+      std::cerr << "[PassRunner] running pass: " << pass->name << std::endl;
+      before = std::chrono::high_resolution_clock::now();
+    }
     pass->run(this, module);
+    if (debug) {
+      std::chrono::high_resolution_clock::time_point after = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<double> diff = std::chrono::duration_cast<std::chrono::duration<double>>(after - before);
+      std::cerr << "[PassRunner]   pass took " << diff.count() << " seconds." << std::endl;
+    }
   }
 }
 
