@@ -351,7 +351,7 @@ private:
       // unnamed, use an index
       func->name = Name::fromInt(functionCounter);
     }
-    if (debug) std::cerr << "parse function " << func->name << '\n';
+    //if (debug) std::cerr << "parse function " << func->name << '\n';
     functionCounter++;
     func->body = nullptr;
     localIndex = 0;

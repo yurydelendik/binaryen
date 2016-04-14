@@ -165,13 +165,13 @@ struct Walker : public Visitor<SubType> {
       std::vector<std::unique_ptr<SubType>> instances;
       std::vector<std::function<ThreadWorkState ()>> doWorkers;
       std::atomic<size_t> nextFunction;
-      nextFunction.store(0, std::memory_order_relaxed);;
+      nextFunction.store(0);
       size_t numFunctions = module->functions.size();
       for (size_t i = 0; i < num; i++) {
         auto* instance = new SubType();
         instances.push_back(std::unique_ptr<SubType>(instance));
         doWorkers.push_back([instance, &nextFunction, numFunctions, &module]() {
-          auto index = nextFunction.fetch_add(1, std::memory_order_relaxed);
+          auto index = nextFunction.fetch_add(1);
           // get the next task, if there is one
           if (index >= numFunctions) {
             return ThreadWorkState::Finished; // nothing left

@@ -44,15 +44,10 @@ static ThreadPool* pool = nullptr;
 
 // Thread
 
-Thread::Thread(std::function<void ()> onReady) {
+Thread::Thread() {
   // main thread object's constructor itself can
   // happen before onMainThread is ready
   assert(onMainThread());
-  // first piece of work for us is to notify we are ready
-  doWork = [&]() {
-    onReady();
-    return ThreadWorkState::Finished;
-  };
   thread = std::unique_ptr<std::thread>(new std::thread(mainLoop, this));
 }
 
@@ -86,8 +81,12 @@ void Thread::mainLoop(void *self_) {
   auto* self = static_cast<Thread*>(self_);
   while (1) {
     std::unique_lock<std::mutex> lock(self->mutex);
-    // run tasks until they are all done
-    while (self->doWork() == ThreadWorkState::More) {}
+    if (self->doWork) {
+      // run tasks until they are all done
+      while (self->doWork() == ThreadWorkState::More) {}
+      self->doWork = nullptr;
+    }
+    ThreadPool::get()->notifyThreadIsReady();
     self->condition.wait(lock);
     if (self->done) break;
   }
@@ -96,23 +95,17 @@ void Thread::mainLoop(void *self_) {
 
 // ThreadPool
 
+//std::mutex debug;
+//#define DEBUG_PRINT(x) { std::lock_guard<std::mutex> lock(debug); x }
+
 ThreadPool::ThreadPool(size_t num) {
   if (num == 1) return; // no multiple cores, don't create threads
   std::unique_lock<std::mutex> lock(mutex);
-  std::atomic<size_t> ready;
-  ready.store(0, std::memory_order_relaxed);
+  resetThreadsAreReady();
   for (size_t i = 0; i < num; i++) {
-    threads.emplace_back(std::unique_ptr<Thread>(new Thread([&] {
-      auto old = ready.fetch_add(1, std::memory_order_relaxed);
-      if (old + 1 == num) {
-        std::lock_guard<std::mutex> lock(mutex);
-        condition.notify_one();
-      }
-    })));
+    threads.emplace_back(std::unique_ptr<Thread>(new Thread()));
   }
-  if (ready.load() < num) {
-    condition.wait(lock);
-  } // otherwise, don't wait for the notification
+  condition.wait(lock, [this]() { return areThreadsReady(); });
 }
 
 ThreadPool* ThreadPool::get() {
@@ -144,24 +137,11 @@ void ThreadPool::work(std::vector<std::function<ThreadWorkState ()>>& doWorkers)
   assert(!running);
   running = true;
   std::unique_lock<std::mutex> lock(mutex);
-  std::atomic<size_t> ready;
-  ready.store(0, std::memory_order_relaxed);
+  resetThreadsAreReady();
   for (size_t i = 0; i < num; i++) {
-    threads[i]->work([i, num, this, &doWorkers, &ready]() {
-      if (doWorkers[i]() == ThreadWorkState::Finished) {
-        auto old = ready.fetch_add(1, std::memory_order_relaxed);
-        if (old + 1 == num) {
-          std::lock_guard<std::mutex> lock(mutex);
-          condition.notify_one();
-        }
-        return ThreadWorkState::Finished;
-      }
-      return ThreadWorkState::More;
-    });
+    threads[i]->work(doWorkers[i]);
   }
-  if (ready.load() < num) {
-    condition.wait(lock);
-  } // otherwise, don't wait for the notification
+  condition.wait(lock, [this]() { return areThreadsReady(); });
   running = false;
 }
 
@@ -171,6 +151,18 @@ size_t ThreadPool::size() {
 
 bool ThreadPool::isRunning() {
   return pool && pool->running;
+}
+
+void ThreadPool::notifyThreadIsReady() {
+  ready.fetch_add(1);
+}
+
+void ThreadPool::resetThreadsAreReady() {
+  ready.store(0);
+}
+
+bool ThreadPool::areThreadsReady() {
+  return ready.load() == threads.size();
 }
 
 } // namespace wasm

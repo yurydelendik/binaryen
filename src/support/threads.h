@@ -48,10 +48,10 @@ class Thread {
   std::mutex mutex;
   std::condition_variable condition;
   bool done = false;
-  std::function<ThreadWorkState ()> doWork;
+  std::function<ThreadWorkState ()> doWork = nullptr;
 
 public:
-  Thread(std::function<void ()> onReady);
+  Thread();
   ~Thread();
 
   // Start to do work, calling doWork() until
@@ -76,6 +76,7 @@ class ThreadPool {
   bool running = false;
   std::mutex mutex;
   std::condition_variable condition;
+  std::atomic<size_t> ready;
 
 private:
   ThreadPool(size_t num);
@@ -94,6 +95,14 @@ public:
   size_t size();
 
   static bool isRunning();
+
+  // Called by helper threads when they are free and ready.
+  void notifyThreadIsReady();
+
+private:
+  void resetThreadsAreReady();
+
+  bool areThreadsReady();
 };
 
 } // namespace wasm
